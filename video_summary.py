@@ -46,20 +46,26 @@ def norm(s: str) -> str:
     return re.sub(r"[\s，。、,.!?！？：:；;「」『』\"'（）()]", "", s)
 
 
-def locate(quote: str, segments: list[dict]) -> float | None:
-    """把模型摘录的原文对回转写里的时间戳。先精确匹配，再退化到 8 字窗口。"""
+def locate(quote: str, segments: list[dict], lo: float, hi: float) -> float | None:
+    """把模型摘录的原文对回转写里的时间戳。
+
+    只在当前章节的时间窗口里找——同一句话在视频里可能出现多次（比如开头介绍、
+    后面演示），全局搜索会匹配到错的那一次。
+    """
     q = norm(quote)
     if len(q) < 6:
         return None
 
-    for s in segments:
+    pool = [s for s in segments if lo - 1 <= s["start"] <= hi + 1]
+
+    for s in pool:
         if q in norm(s["text"]):
             return s["start"]
 
     for size in (10, 8):
         for i in range(0, max(0, len(q) - size) + 1):
             frag = q[i : i + size]
-            for s in segments:
+            for s in pool:
                 if frag in norm(s["text"]):
                     return s["start"]
     return None
@@ -94,7 +100,11 @@ def summarize_chapter(client, chunks: list[dict], segments: list[dict]) -> dict:
         if not text:
             continue
 
-        exact = locate(quote, segments) if (quote and segments) else None
+        exact = (
+            locate(quote, segments, chunks[0]["start"], chunks[-1]["end"])
+            if (quote and segments)
+            else None
+        )
         if exact is not None:
             start, approx = exact, False
         else:
