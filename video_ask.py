@@ -16,7 +16,7 @@ import re
 import time
 from pathlib import Path
 
-from common import BASE_URL, MODEL, VectorIndex, load_key
+from common import BASE_URL, MODEL, RerankIndex, VectorIndex, load_key
 
 SYSTEM = """你是视频内容问答助手。规则：
 1. 只能依据【资料】回答，不要使用资料以外的知识。
@@ -116,6 +116,7 @@ def main() -> None:
     ap.add_argument("--q", default="", help="问一次就退出")
     ap.add_argument("--k", type=int, default=3)
     ap.add_argument("--json", action="store_true", help="输出 JSON（给前端用）")
+    ap.add_argument("--rerank", action="store_true", help="召回后用 reranker 精排")
     ap.add_argument(
         "--min-score", type=float, default=0.0,
         help="top1 相似度低于此值直接拒答，例如 0.55",
@@ -127,7 +128,7 @@ def main() -> None:
     chunks = data["chunks"]
 
     print(f"视频：{Path(data.get('video', '')).name or path.stem}   共 {len(chunks)} 块")
-    index = VectorIndex(chunks)
+    index = RerankIndex(chunks) if args.rerank else VectorIndex(chunks)
 
     key = load_key()
     if not key:

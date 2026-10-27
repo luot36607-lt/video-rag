@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from common import BASE_URL, VectorIndex, load_key
+from common import BASE_URL, RerankIndex, VectorIndex, load_key
 from library import all_chunks, find_video, load_videos, summary_for
 from video_ask import ask as ask_impl
 
@@ -36,7 +36,12 @@ async def lifespan(app: FastAPI):
     chunks = all_chunks(videos)
     state["videos"] = videos
     state["chunks"] = chunks
-    state["index"] = VectorIndex(chunks)
+    if os.environ.get("RERANK", "0") == "1":
+        state["index"] = RerankIndex(chunks)
+        print("检索：向量召回 top-10 + rerank 精排 top-3")
+    else:
+        state["index"] = VectorIndex(chunks)
+        print("检索：纯向量（设 RERANK=1 可开启 rerank）")
 
     key = load_key()
     if not key:

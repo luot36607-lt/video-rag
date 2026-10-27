@@ -188,6 +188,34 @@ chunks/ollama-basics.json      summaries/ollama-basics.json
 
 ---
 
+## rerank：实现了，但没有默认开启
+
+两段式检索：向量先召回 top-10，再用 `BAAI/bge-reranker-v2-m3` 精排出 top-3。
+
+在 8 道题上的实测（`eval_retrieval.py` + `eval/video_ref.json`）：
+
+| 方案 | hit@3 | MRR |
+|---|---|---|
+| 纯向量 | 8/8 | **0.812** |
+| 向量 + rerank | 8/8 | 0.792 |
+
+**召回没变，排序反而略降。** 原因有两个：
+
+1. **语料只有 42 块**，候选集和最终 top-3 高度重叠，reranker 没有多少可修的空间
+2. **reranker 打的是“主题相关度”，不是“这段是不是操作步骤”**。比如问「LangChain 怎么调用 Ollama」，
+   它把开头的预告（“我们也可以访问 Ollama”）排在实操演示（导入 `OllamaLLM`、调用 `invoke`）前面
+
+所以默认关闭，需要时用环境变量打开：
+
+```powershell
+$env:RERANK=1
+```
+
+**这个负面结果比“加了 rerank 就变好”更有价值**：rerank 不是无条件的银弹，
+语料规模、标注口径、问题类型都会影响它是否有效。
+
+---
+
 ## 踩过的坑
 
 **1. ASR 的专有名词是成片错的，不是随机的**
@@ -232,6 +260,7 @@ asr_fix.py            词典 + LLM 纠错
 chunk_recursive.py    递归分块（章节/段落/句子）
 video_summary.py      分段摘要（要点 + 原文引用 + 精确时间）
 video_eval.py         摘要评测（覆盖率 / 可定位率 / 压缩比）
+eval_retrieval.py     检索评测（hit@k / MRR，向量 vs rerank）
 video_ask.py          命令行问答
 video_api.py          FastAPI 服务（多视频、Range 视频流）
 common.py             embedding / 向量索引 / 模型配置
@@ -249,7 +278,7 @@ eval/                 人工参考摘要 + 评测结果
 ## 已知限制
 
 - **只处理音频**，不看画面。PPT 翻页、板书、代码演示都没利用
-- **单视频**：一次只能索引一个视频，没有跨视频检索
+- **rerank 默认关闭**：实测在这份语料上没有提升（见上），需要时设 `RERANK=1`
 - **章节检测依赖相似度**，遇到单主题长段落会切不准
 - **CPU 转写慢**：1 小时视频约需 45 分钟，做长视频要上 GPU 或云 ASR
 - **无并发控制**：转写是同步的，多人同时用会排队

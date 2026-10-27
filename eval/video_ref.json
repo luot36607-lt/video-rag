@@ -1,0 +1,10 @@
+[
+  {"q": "invoke 和 stream 有什么区别？", "video": "07-streaming", "start": 270, "end": 370},
+  {"q": "怎么用 stream 实现流式输出？", "video": "07-streaming", "start": 30, "end": 110},
+  {"q": "AI Message 是什么？", "video": "08-chat-model", "start": 30, "end": 90},
+  {"q": "Human Message 是什么？", "video": "08-chat-model", "start": 80, "end": 150},
+  {"q": "ChatOllama 怎么用？", "video": "08-chat-model", "start": 660, "end": 740},
+  {"q": "聊天模型和大语言模型有什么区别？", "video": "langchain-llm", "start": 0, "end": 120},
+  {"q": "LangChain 怎么调用 Ollama？", "video": "langchain-llm", "start": 390, "end": 480},
+  {"q": "为什么不用 qwen3-max？", "video": "langchain-llm", "start": 260, "end": 300}
+]

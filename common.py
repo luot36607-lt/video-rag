@@ -7,6 +7,7 @@
 import hashlib
 import json
 import os
+import urllib.request
 from pathlib import Path
 
 BASE_URL = "https://api.deepseek.com"
@@ -14,6 +15,8 @@ MODEL = "deepseek-chat"
 
 EMBED_BASE_URL = "https://api.siliconflow.cn/v1"
 EMBED_MODEL = "BAAI/bge-m3"
+RERANK_URL = "https://api.siliconflow.cn/v1/rerank"
+RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
 CACHE_FILE = Path("embed_cache.json")
 BATCH = 32
 
@@ -102,3 +105,57 @@ class VectorIndex:
         sims = [(sum(a * b for a, b in zip(q, v)), i) for i, v in enumerate(self.vectors)]
         sims.sort(reverse=True)
         return sims[:top_k]
+
+
+def rerank(query: str, documents: list[str], top_n: int = 3) -> list[tuple[float, int]]:
+    """用 bge-reranker 给候选重新打分。返回 [(相关度, 候选下标)]。"""
+    if not documents:
+        return []
+
+    key = load_key("SILICONFLOW_API_KEY") or load_key("EMBED_API_KEY")
+    if not key:
+        raise SystemExit("没读到 SILICONFLOW_API_KEY，无法使用 rerank")
+
+    body = json.dumps(
+        {
+            "model": RERANK_MODEL,
+            "query": query,
+            "documents": documents,
+            "top_n": min(top_n, len(documents)),
+            "return_documents": False,
+        }
+    ).encode()
+
+    req = urllib.request.Request(
+        RERANK_URL,
+        data=body,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"rerank 调用失败：{e}") from e
+
+    return [(float(x["relevance_score"]), int(x["index"])) for x in data.get("results", [])]
+
+
+class RerankIndex:
+    """两段式检索：向量先粗排召回 depth 条，再用 reranker 精排出 top_k。"""
+
+    def __init__(self, chunks: list[dict], depth: int = 10):
+        self.chunks = chunks
+        self.base = VectorIndex(chunks)
+        self.depth = depth
+
+    def search(self, query: str, top_k: int = 3) -> list[tuple[float, int]]:
+        cands = self.base.search(query, self.depth)
+        if not cands:
+            return []
+        docs = [self.chunks[i]["text"] for _, i in cands]
+        try:
+            ranked = rerank(query, docs, top_n=top_k)
+        except SystemExit as e:
+            print(f"[warn] {e}，退回向量排序")
+            return cands[:top_k]
+        return [(score, cands[idx][1]) for score, idx in ranked]
