@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>视频问答</title>
+<style>
+  :root {
+    --bg: #f6f5f2;
+    --card: #ffffff;
+    --ink: #1f2328;
+    --muted: #6b7280;
+    --line: #e5e2db;
+    --accent: #2f6f4f;
+    --accent-soft: #eaf2ec;
+    --warn: #a33;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 36px 20px 80px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+
+  .player {
+    position: relative; background: #000; border-radius: 14px; overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,.08);
+  }
+  video { display: block; width: 100%; max-height: 62vh; background: #000; }
+
+  .asker {
+    margin-top: 20px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px;
+  }
+  textarea {
+    width: 100%; border: 0; outline: 0; resize: none; font: inherit;
+    background: transparent; color: var(--ink); min-height: 48px;
+  }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  button.primary {
+    font: inherit; cursor: pointer; border: 0; border-radius: 9px;
+    padding: 8px 18px; background: var(--accent); color: #fff;
+  }
+  button.primary:disabled { opacity: .45; cursor: default; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip {
+    font-size: 13px; color: var(--muted); cursor: pointer;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 12px;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .qa { margin-top: 24px; }
+  .q { font-weight: 600; padding-left: 12px; border-left: 3px solid var(--accent); }
+  .a {
+    margin-top: 10px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px 18px; white-space: pre-wrap; word-break: break-word;
+  }
+  .a.refuse { color: var(--muted); }
+
+  .sources { margin-top: 10px; display: grid; gap: 8px; }
+  .src {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; font: inherit; color: var(--ink);
+  }
+  .src:hover { border-color: var(--accent); }
+  .src.playing { border-color: var(--accent); background: var(--accent-soft); }
+  .src .top { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .src .idx { font-weight: 600; }
+  .src .time { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+  .src .score { color: var(--muted); margin-left: auto; }
+  .src .snip { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .src .hint { color: var(--muted); font-size: 12px; }
+  .src.uncited .time { color: var(--muted); }
+
+  .meta { margin-top: 10px; color: var(--muted); font-size: 12px; }
+  .error { color: var(--warn); margin-top: 16px; font-size: 14px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 36px; transform: translate(-50%, 16px);
+    background: rgba(31,35,40,.92); color: #fff; padding: 8px 18px;
+    border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none;
+    transition: opacity .18s, transform .18s; z-index: 10;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>视频问答</h1>
+  <p class="sub" id="status">正在连接…</p>
+
+  <div class="player">
+    <video id="video" src="/video" controls preload="metadata"></video>
+  </div>
+
+  <div class="asker">
+    <textarea id="q" placeholder="问点什么……（Ctrl + Enter 发送）"></textarea>
+    <div class="row">
+      <span class="sub" id="hint" style="margin:0"></span>
+      <button class="primary" id="send">提问</button>
+    </div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+  <div id="out"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const qEl = $("q"), btn = $("send"), out = $("out"), video = $("video");
+
+const SAMPLES = [
+  "LangChain 怎么调用通义千问？",
+  "怎么用 Ollama 跑本地模型？",
+  "聊天模型和大语言模型有什么区别？",
+];
+
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const fmt = (sec) => {
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+};
+
+$("chips").innerHTML = SAMPLES.map((s) => `<span class="chip">${esc(s)}</span>`).join("");
+document.querySelectorAll(".chip").forEach((el) => {
+  el.onclick = () => { qEl.value = el.textContent; ask(); };
+});
+
+async function boot() {
+  try {
+    const d = await fetch("/info").then((r) => r.json());
+    $("status").textContent =
+      `已索引 ${d.chunks} 块 · 视频时长 ${fmt(d.duration)} · ${d.video}`;
+  } catch {
+    $("status").textContent = "服务未响应";
+  }
+}
+
+function seek(t) {
+  const start = () => {
+    try { video.currentTime = t; } catch (_) { /* 元数据没就绪，下面有兜底 */ }
+    const p = video.play();
+    if (p && p.catch) {
+      p.catch((err) => {
+        $("status").textContent =
+          "浏览器拦截了自动播放，请先点一下视频再试（" + err.name + "）";
+      });
+    }
+    toast("已跳到 " + fmt(t));
+  };
+
+  // 视频源失效（比如服务重启过）时，先重新加载再跳
+  if (video.error || video.networkState === 3) {
+    $("status").textContent = "视频连接中断，正在重新加载…";
+    video.src = "/video";
+    video.load();
+    video.addEventListener("loadedmetadata", start, { once: true });
+    return;
+  }
+  // 元数据还没加载完，直接设 currentTime 会被忽略
+  if (video.readyState >= 1) start();
+  else video.addEventListener("loadedmetadata", start, { once: true });
+}
+
+let toastTimer = null;
+function toast(msg) {
+  let el = $("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+}
+
+video.addEventListener("error", () => {
+  const code = video.error ? video.error.code : "?";
+  $("status").textContent = `视频加载失败（错误码 ${code}），刷新页面或检查服务是否在运行`;
+});
+
+function render(data) {
+  const refused = !data.sources || data.sources.length === 0;
+  const srcs = (data.sources || []).map((s) => `
+    <button class="src ${s.cited ? "" : "uncited"}" data-start="${s.start}" data-end="${s.end}">
+      <div class="top">
+        <span class="idx">[${s.index}]</span>
+        <span class="time">${s.time.split(" - ")[0]}</span>
+        <span class="hint">点击跳转</span>
+        <span class="score">相似度 ${s.score.toFixed(3)}</span>
+      </div>
+      <div class="snip">${esc(s.snippet)}…</div>
+    </button>`).join("");
+
+  out.insertAdjacentHTML("afterbegin", `
+    <div class="qa">
+      <div class="q">${esc(data.question)}</div>
+      <div class="a ${refused ? "refuse" : ""}">${esc(data.answer)}</div>
+      ${srcs ? `<div class="sources">${srcs}</div>` : ""}
+      <div class="meta">
+        检索 ${data.retrieve_ms ?? "-"}ms · 生成 ${data.generate_ms ?? "-"}ms
+        ${data.tokens ? "· " + data.tokens + " tokens" : ""}
+      </div>
+    </div>`);
+
+  out.querySelectorAll(".src").forEach((el) => {
+    el.onclick = () => seek(parseFloat(el.dataset.start));
+  });
+}
+
+async function ask() {
+  const question = qEl.value.trim();
+  if (!question) return;
+  btn.disabled = true;
+  $("hint").textContent = "检索并生成中…";
+  try {
+    const res = await fetch("/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, k: 3, min_score: 0.55 }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    render(await res.json());
+    qEl.value = "";
+  } catch (e) {
+    out.insertAdjacentHTML("afterbegin", `<div class="error">出错了：${esc(String(e.message || e))}</div>`);
+  } finally {
+    btn.disabled = false;
+    $("hint").textContent = "";
+  }
+}
+
+// 播放到某个来源区间时，把对应的卡片高亮
+video.addEventListener("timeupdate", () => {
+  const t = video.currentTime;
+  out.querySelectorAll(".src").forEach((el) => {
+    const a = parseFloat(el.dataset.start), b = parseFloat(el.dataset.end);
+    el.classList.toggle("playing", t >= a && t <= b);
+  });
+});
+
+btn.onclick = ask;
+qEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask();
+});
+boot();
+</script>
+</body>
+</html>
