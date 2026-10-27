@@ -28,3 +28,6 @@ chunks/
 
 # 生成的摘要（内容派生自原始视频，不提交）
 summaries/
+
+# 评测输出（可复现，不必提交）
+eval/summary_eval.json

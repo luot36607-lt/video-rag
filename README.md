@@ -17,6 +17,7 @@
 | 纠错 | 词典 86 处 + LLM 修正 55 段 |
 | 分块 | 289 句 → 27 段 → 5 章 → 13 块，平均 299 字 / 46 秒 |
 | 摘要 | 4 章 / 20 条要点，**20/20 精确定位到原句** |
+| 摘要评测 | 覆盖率 2/3 · 可定位率 20/20 · 压缩比 17.1% |
 | 检索 | ~500ms（含一次 embedding） |
 | 生成 | ~1.6s，约 700 tokens |
 
@@ -126,6 +127,31 @@ copy .env.example .env        # 填两个 key
 
 ---
 
+## 摘要评测
+
+| 指标 | 含义 | 结果 |
+|---|---|---|
+| 覆盖率 | 人工参考要点被覆盖的比例 | 2/3 |
+| 可定位率 | 要点能精确回到原句的比例 | 20/20 |
+| 压缩比 | 摘要字数 / 转写字数 | 17.1% |
+
+```powershell
+.venv\Scripts\python.exe video_eval.py --summary summaries\semantic.json --ref eval\summary_ref.json --transcript transcripts\video.fixed.json
+```
+
+参考要点在 `eval/summary_ref.json`，由人写，不由模型代劳。
+
+**没覆盖的那条，原因不在摘要模型。** 参考要点是「不用 qwen3-max 的原因」，
+但转写把两个模型名都识别成了 qwen-max：
+
+> 我们不用 qwen-max …… 因为 qwen-max 是聊天模型
+> 然后我们用的 qwen-max 是大语言模型
+
+一句话自相矛盾，摘要只能选择不提。**ASR 的错误会一路传导到摘要质量**——
+这也是为什么术语纠错不是做一次就完事。
+
+---
+
 ## 踩过的坑
 
 **1. ASR 的专有名词是成片错的，不是随机的**
@@ -161,6 +187,7 @@ video_transcribe.py   视频 → 音频 → 带时间戳的文本
 asr_fix.py            词典 + LLM 纠错
 chunk_recursive.py    递归分块（章节/段落/句子）
 video_summary.py      分段摘要（要点 + 原文引用 + 精确时间）
+video_eval.py         摘要评测（覆盖率 / 可定位率 / 压缩比）
 video_ask.py          命令行问答
 video_api.py          FastAPI 服务（含 Range 视频流）
 common.py             embedding / 向量索引 / 模型配置
@@ -169,6 +196,7 @@ data/                 放视频（不进仓库）
 transcripts/          转写结果（不进仓库）
 chunks/               分块结果（不进仓库）
 summaries/            摘要结果（不进仓库）
+eval/                 人工参考摘要 + 评测结果
 ```
 
 ---
