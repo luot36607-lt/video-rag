@@ -193,13 +193,15 @@ def main() -> None:
 
     print("生成总览…")
     result = {
+        "id": data.get("id", src.stem),
+        "title": data.get("title", src.stem),
         "video": data.get("video", ""),
         "duration": data.get("duration", 0),
         "overview": overview(client, chapters),
         "chapters": chapters,
     }
 
-    out = Path(args.out) if args.out else Path("summaries") / src.name
+    out = Path(args.out) if args.out else Path("summaries") / f"{result['id']}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"已写入 {out}")

@@ -76,20 +76,43 @@ copy .env.example .env        # 填两个 key
 
 ```powershell
 # 1. 转写（首次会下载模型，国内走 hf-mirror 镜像）
-.venv\Scripts\python.exe video_transcribe.py "data\video.mp4"
+.venv\Scripts\python.exe video_transcribe.py "data\video.mp4" --id demo
 
 # 2. 纠错（--llm 会用上下文再修一轮同音字）
-.venv\Scripts\python.exe asr_fix.py "transcripts\video.json" --llm
+.venv\Scripts\python.exe asr_fix.py "transcripts\demo.json" --llm
 
 # 3. 递归分块（--semantic 用 embedding 找话题边界）
-.venv\Scripts\python.exe chunk_recursive.py "transcripts\video.fixed.json" --semantic
+.venv\Scripts\python.exe chunk_recursive.py "transcripts\demo.fixed.json" --semantic --id demo --title "演示视频"
 
 # 4. 生成分段摘要（--transcript 用来把要点对回精确时间）
-.venv\Scripts\python.exe video_summary.py chunks\video.fixed.json --transcript transcripts\video.fixed.json --md
+.venv\Scripts\python.exe video_summary.py chunks\demo.json --transcript transcripts\demo.fixed.json --md
 
 # 5. 起服务
 .venv\Scripts\python.exe -m uvicorn video_api:app --reload --port 8002
 ```
+
+---
+
+## 多视频
+
+一个视频一个 ID，文件按 ID 存放：
+
+```
+chunks/langchain-llm.json      summaries/langchain-llm.json
+chunks/ollama-basics.json      summaries/ollama-basics.json
+```
+
+再加一个视频，就是把上面四步的 `--id` 换掉再跑一遍：
+
+```powershell
+.venv\Scripts\python.exe video_transcribe.py "data\第二个.mp4" --id ollama-basics
+.venv\Scripts\python.exe asr_fix.py "transcripts\ollama-basics.json" --llm
+.venv\Scripts\python.exe chunk_recursive.py "transcripts\ollama-basics.fixed.json" --semantic --id ollama-basics --title "Ollama 基础"
+.venv\Scripts\python.exe video_summary.py chunks\ollama-basics.json --transcript transcripts\ollama-basics.fixed.json
+```
+
+**检索是全局的**：提问会搜所有视频，结果里标注来自哪个视频；点来源会自动切换到那个视频并跳到时间点。
+页面右上角的下拉框可以手动切换。
 
 打开 http://127.0.0.1:8002/ ，左边播放器，下面提问，点来源跳转。
 
@@ -199,8 +222,9 @@ chunk_recursive.py    递归分块（章节/段落/句子）
 video_summary.py      分段摘要（要点 + 原文引用 + 精确时间）
 video_eval.py         摘要评测（覆盖率 / 可定位率 / 压缩比）
 video_ask.py          命令行问答
-video_api.py          FastAPI 服务（含 Range 视频流）
+video_api.py          FastAPI 服务（多视频、Range 视频流）
 common.py             embedding / 向量索引 / 模型配置
+library.py            多视频索引：扫描 chunks/ 拼成检索集合
 web/video.html        播放器 + 问答界面
 data/                 放视频（不进仓库）
 transcripts/          转写结果（不进仓库）
@@ -225,5 +249,6 @@ eval/                 人工参考摘要 + 评测结果
 
 1. **画面理解**：抽关键帧 + OCR，把 PPT 内容也纳入检索
 2. **异步任务**：转写放到队列里，前端显示进度
-3. **跨视频检索**：多个视频共用一个索引，回答里带「哪个视频 + 时间点」
+3. **数据库**：现在每个视频一个 JSON，多了以后需要按视频过滤、增量更新、并发写——
+   到那时再上 Postgres + pgvector，而不是现在
 4. **摘要评测**：现在只验证了「要点能定位到原句」，还没验证「要点是否说全了」——需要人工标注参考摘要，算覆盖率和忠实度

@@ -69,6 +69,7 @@ def main() -> None:
     ap.add_argument("--model", default="small", help="tiny / base / small / medium")
     ap.add_argument("--limit", type=float, default=0, help="只转前 N 秒，0 表示全部")
     ap.add_argument("--out", default="")
+    ap.add_argument("--id", default="", help="视频 ID（默认用文件名）")
     ap.add_argument(
         "--prompt",
         default="LangChain, RAG, 向量, 余弦相似度, 大语言模型, API, 提示词, 嵌入, 检索增强生成",
@@ -119,12 +120,13 @@ def main() -> None:
 
     print(f"完成：{len(rows)} 段，转写耗时 {time.time() - t1:.1f}s")
 
-    out = Path(args.out) if args.out else Path("transcripts") / f"{path.stem}.json"
+    vid = args.id or path.stem
+    out = Path(args.out) if args.out else Path("transcripts") / f"{vid}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps(
-            {"video": str(path), "duration": round(duration, 2), "language": info.language,
-             "segments": rows},
+            {"id": vid, "video": str(path), "duration": round(duration, 2),
+             "language": info.language, "segments": rows},
             ensure_ascii=False,
             indent=2,
         ),

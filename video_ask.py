@@ -73,6 +73,8 @@ def ask(
     sources = [
         {
             "index": n,
+            "video_id": c.get("video_id", ""),
+            "video_title": c.get("video_title", ""),
             "start": c["start"],
             "end": c["end"],
             "time": f"{fmt(c['start'])} - {fmt(c['end'])}",

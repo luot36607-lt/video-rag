@@ -197,6 +197,8 @@ def main() -> None:
     ap.add_argument("--no-overlap", action="store_true")
     ap.add_argument("--semantic", action="store_true", help="用 embedding 检测话题边界（需要 embedding key）")
     ap.add_argument("--out", default="")
+    ap.add_argument("--id", default="", help="视频 ID（默认用文件名），多视频时建议显式指定")
+    ap.add_argument("--title", default="", help="显示用的标题")
     args = ap.parse_args()
 
     path = Path(args.transcript)
@@ -229,11 +231,18 @@ def main() -> None:
     print(f"  时长 平均 {sum(durs)/len(durs):.0f}s，最短 {min(durs):.0f}s，最长 {max(durs):.0f}s")
     print(f"  跨章节的块：{sum(1 for i in range(1, len(chunks)) if chunks[i]['chapter'] != chunks[i-1]['chapter'])} 个章节边界")
 
-    out = Path(args.out) if args.out else Path("chunks") / f"{path.stem}.json"
+    vid = args.id or path.stem
+    out = Path(args.out) if args.out else Path("chunks") / f"{vid}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps(
-            {"video": data.get("video", ""), "duration": data.get("duration", 0), "chunks": chunks},
+            {
+                "id": vid,
+                "title": args.title or vid,
+                "video": data.get("video", ""),
+                "duration": data.get("duration", 0),
+                "chunks": chunks,
+            },
             ensure_ascii=False,
             indent=2,
         ),

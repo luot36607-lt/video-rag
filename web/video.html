@@ -21,17 +21,24 @@
     font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   }
   .wrap { max-width: 860px; margin: 0 auto; padding: 36px 20px 80px; }
+
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
   h1 { font-size: 24px; margin: 0 0 4px; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0; }
+  select {
+    font: inherit; font-size: 13px; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px;
+    max-width: 100%;
+  }
 
   .player {
-    position: relative; background: #000; border-radius: 14px; overflow: hidden;
+    margin-top: 16px; background: #000; border-radius: 14px; overflow: hidden;
     box-shadow: 0 2px 10px rgba(0,0,0,.08);
   }
   video { display: block; width: 100%; max-height: 62vh; background: #000; }
 
   .asker {
-    margin-top: 20px; background: var(--card); border: 1px solid var(--line);
+    margin-top: 18px; background: var(--card); border: 1px solid var(--line);
     border-radius: 14px; padding: 14px;
   }
   textarea {
@@ -69,12 +76,12 @@
   }
   .src:hover { border-color: var(--accent); }
   .src.playing { border-color: var(--accent); background: var(--accent-soft); }
-  .src .top { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .src .top { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
   .src .idx { font-weight: 600; }
   .src .time { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
   .src .score { color: var(--muted); margin-left: auto; }
   .src .snip { color: var(--muted); font-size: 13px; margin-top: 4px; }
-  .src .hint { color: var(--muted); font-size: 12px; }
+  .src .hint, .src .vname { color: var(--muted); font-size: 12px; }
   .src.uncited .time { color: var(--muted); }
 
   .meta { margin-top: 10px; color: var(--muted); font-size: 12px; }
@@ -96,10 +103,7 @@
   .summary .overview { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
   .chap { border-top: 1px solid var(--line); padding: 8px 0; }
   .chap:first-of-type { border-top: 0; }
-  .chap summary {
-    display: flex; align-items: center; gap: 10px; cursor: pointer;
-    list-style: none; outline: none;
-  }
+  .chap summary { display: flex; align-items: center; gap: 10px; cursor: pointer; list-style: none; outline: none; }
   .chap summary::-webkit-details-marker { display: none; }
   .chap .ctitle { font-weight: 600; font-size: 14px; }
   .seek {
@@ -115,11 +119,16 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>视频问答</h1>
-  <p class="sub" id="status">正在连接…</p>
+  <div class="head">
+    <div>
+      <h1>视频问答</h1>
+      <p class="sub" id="status">正在连接…</p>
+    </div>
+    <select id="pick"></select>
+  </div>
 
   <div class="player">
-    <video id="video" src="/video" controls preload="metadata"></video>
+    <video id="video" controls preload="metadata"></video>
   </div>
 
   <div id="summary"></div>
@@ -139,13 +148,15 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-const qEl = $("q"), btn = $("send"), out = $("out"), video = $("video");
+const qEl = $("q"), btn = $("send"), out = $("out"), video = $("video"), pick = $("pick");
 
 const SAMPLES = [
   "LangChain 怎么调用通义千问？",
   "怎么用 Ollama 跑本地模型？",
   "聊天模型和大语言模型有什么区别？",
 ];
+
+let current = null;
 
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const fmt = (sec) => {
@@ -160,19 +171,57 @@ document.querySelectorAll(".chip").forEach((el) => {
 
 async function boot() {
   try {
-    const d = await fetch("/info").then((r) => r.json());
-    $("status").textContent =
-      `已索引 ${d.chunks} 块 · 视频时长 ${fmt(d.duration)} · ${d.video}`;
+    const vids = await fetch("/videos").then((r) => r.json());
+    if (!vids.length) {
+      $("status").textContent = "还没有视频，先跑转写和分块";
+      return;
+    }
+    pick.innerHTML = vids
+      .map((v) => `<option value="${v.id}">${esc(v.title)} · ${fmt(v.duration)}</option>`)
+      .join("");
+    pick.onchange = () => selectVideo(pick.value);
+    await selectVideo(vids[0].id);
   } catch {
     $("status").textContent = "服务未响应";
   }
-  loadSummary();
 }
 
-async function loadSummary() {
+async function selectVideo(id, start) {
+  current = id;
+  if (pick.value !== id) pick.value = id;
+
+  if (video.dataset.vid !== id) {
+    video.dataset.vid = id;
+    video.src = "/video/" + encodeURIComponent(id);
+    video.load();
+  }
+
+  if (start != null) {
+    const go = () => {
+      try { video.currentTime = start; } catch (_) {}
+      const p = video.play();
+      if (p && p.catch) p.catch(() => {
+        $("status").textContent = "浏览器拦截了自动播放，请点一下视频";
+      });
+      toast("已跳到 " + fmt(start));
+    };
+    if (video.readyState >= 1) go();
+    else video.addEventListener("loadedmetadata", go, { once: true });
+  }
+
+  loadSummary(id);
+
   try {
-    const d = await fetch("/summary").then((r) => r.json());
-    if (!d.chapters || !d.chapters.length) return;
+    const info = await fetch("/info").then((r) => r.json());
+    $("status").textContent = `${info.videos} 个视频 · ${info.chunks} 块资料`;
+  } catch { /* ignore */ }
+}
+
+async function loadSummary(id) {
+  const box = $("summary");
+  try {
+    const d = await fetch("/summary/" + encodeURIComponent(id)).then((r) => r.json());
+    if (!d.chapters || !d.chapters.length) { box.innerHTML = ""; return; }
     const body = d.chapters.map((c, i) => `
       <details class="chap" ${i === 0 ? "open" : ""}>
         <summary>
@@ -186,49 +235,47 @@ async function loadSummary() {
         </ul>
       </details>`).join("");
 
-    $("summary").innerHTML =
-      `<div class="summary"><h2>视频摘要</h2>
-       <p class="overview">${esc(d.overview)}</p>${body}</div>`;
+    box.innerHTML = `<div class="summary"><h2>视频摘要</h2>
+      <p class="overview">${esc(d.overview)}</p>${body}</div>`;
 
-    $("summary").querySelectorAll(".seek").forEach((el) => {
+    box.querySelectorAll(".seek").forEach((el) => {
       el.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         seek(parseFloat(el.dataset.start));
       };
     });
-  } catch { /* 没有摘要就不显示 */ }
+  } catch {
+    box.innerHTML = "";
+  }
 }
 
 function seek(t) {
   const start = () => {
-    try { video.currentTime = t; } catch (_) { /* 元数据没就绪，下面有兜底 */ }
+    try { video.currentTime = t; } catch (_) {}
     const p = video.play();
     if (p && p.catch) {
       p.catch((err) => {
-        $("status").textContent =
-          "浏览器拦截了自动播放，请先点一下视频再试（" + err.name + "）";
+        $("status").textContent = "浏览器拦截了自动播放，请先点一下视频（" + err.name + "）";
       });
     }
     toast("已跳到 " + fmt(t));
   };
 
-  // 视频源失效（比如服务重启过）时，先重新加载再跳
   if (video.error || video.networkState === 3) {
     $("status").textContent = "视频连接中断，正在重新加载…";
-    video.src = "/video";
+    video.src = "/video/" + encodeURIComponent(current);
     video.load();
     video.addEventListener("loadedmetadata", start, { once: true });
     return;
   }
-  // 元数据还没加载完，直接设 currentTime 会被忽略
   if (video.readyState >= 1) start();
   else video.addEventListener("loadedmetadata", start, { once: true });
 }
 
 let toastTimer = null;
 function toast(msg) {
-  let el = $("toast");
+  const el = $("toast");
   el.textContent = msg;
   el.classList.add("show");
   clearTimeout(toastTimer);
@@ -242,12 +289,16 @@ video.addEventListener("error", () => {
 
 function render(data) {
   const refused = !data.sources || data.sources.length === 0;
+  const multi = new Set((data.sources || []).map((s) => s.video_id)).size > 1;
+
   const srcs = (data.sources || []).map((s) => `
-    <button class="src ${s.cited ? "" : "uncited"}" data-start="${s.start}" data-end="${s.end}">
+    <button class="src ${s.cited ? "" : "uncited"}"
+            data-start="${s.start}" data-end="${s.end}" data-video="${esc(s.video_id || "")}">
       <div class="top">
         <span class="idx">[${s.index}]</span>
         <span class="time">${s.time.split(" - ")[0]}</span>
         <span class="hint">点击跳转</span>
+        ${multi && s.video_title ? `<span class="vname">${esc(s.video_title)}</span>` : ""}
         <span class="score">相似度 ${s.score.toFixed(3)}</span>
       </div>
       <div class="snip">${esc(s.snippet)}…</div>
@@ -265,7 +316,12 @@ function render(data) {
     </div>`);
 
   out.querySelectorAll(".src").forEach((el) => {
-    el.onclick = () => seek(parseFloat(el.dataset.start));
+    el.onclick = () => {
+      const t = parseFloat(el.dataset.start);
+      const vid = el.dataset.video;
+      if (vid && vid !== current) selectVideo(vid, t);
+      else seek(t);
+    };
   });
 }
 
@@ -291,12 +347,12 @@ async function ask() {
   }
 }
 
-// 播放到某个来源区间时，把对应的卡片高亮
 video.addEventListener("timeupdate", () => {
   const t = video.currentTime;
   out.querySelectorAll(".src").forEach((el) => {
     const a = parseFloat(el.dataset.start), b = parseFloat(el.dataset.end);
-    el.classList.toggle("playing", t >= a && t <= b);
+    const same = !el.dataset.video || el.dataset.video === current;
+    el.classList.toggle("playing", same && t >= a && t <= b);
   });
 });
 
