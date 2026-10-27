@@ -21,7 +21,8 @@ BATCH = 32
 def _env(name: str, default: str = "") -> str:
     from dotenv import load_dotenv
 
-    load_dotenv()
+    # 明确从当前工作目录读，避免 find_dotenv 从调用栈所在文件向上找
+    load_dotenv(Path.cwd() / ".env")
     return os.environ.get(name) or default
 
 

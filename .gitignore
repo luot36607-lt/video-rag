@@ -25,3 +25,6 @@ chunks/
 *.wav
 *.m4a
 
+
+# 生成的摘要（内容派生自原始视频，不提交）
+summaries/

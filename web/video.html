@@ -87,6 +87,30 @@
     transition: opacity .18s, transform .18s; z-index: 10;
   }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  .summary {
+    margin-top: 16px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 18px;
+  }
+  .summary h2 { font-size: 15px; margin: 0 0 6px; }
+  .summary .overview { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .chap { border-top: 1px solid var(--line); padding: 8px 0; }
+  .chap:first-of-type { border-top: 0; }
+  .chap summary {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    list-style: none; outline: none;
+  }
+  .chap summary::-webkit-details-marker { display: none; }
+  .chap .ctitle { font-weight: 600; font-size: 14px; }
+  .seek {
+    font: inherit; font-size: 12px; color: var(--accent); background: var(--accent-soft);
+    border: 0; border-radius: 6px; padding: 2px 7px; cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  .seek:hover { background: var(--accent); color: #fff; }
+  .chap ul { margin: 8px 0 2px; padding-left: 18px; }
+  .chap li { margin: 5px 0; font-size: 14px; }
+  .chap li .seek { margin-left: 6px; }
 </style>
 </head>
 <body>
@@ -97,6 +121,8 @@
   <div class="player">
     <video id="video" src="/video" controls preload="metadata"></video>
   </div>
+
+  <div id="summary"></div>
 
   <div class="asker">
     <textarea id="q" placeholder="问点什么……（Ctrl + Enter 发送）"></textarea>
@@ -140,6 +166,38 @@ async function boot() {
   } catch {
     $("status").textContent = "服务未响应";
   }
+  loadSummary();
+}
+
+async function loadSummary() {
+  try {
+    const d = await fetch("/summary").then((r) => r.json());
+    if (!d.chapters || !d.chapters.length) return;
+    const body = d.chapters.map((c, i) => `
+      <details class="chap" ${i === 0 ? "open" : ""}>
+        <summary>
+          <button class="seek" data-start="${c.start}">${c.time.split(" - ")[0]}</button>
+          <span class="ctitle">${esc(c.title)}</span>
+        </summary>
+        <ul>${c.points.map((p) => `
+          <li>${esc(p.text)}
+            <button class="seek" data-start="${p.start}">${p.approx ? "≈" : ""}${p.time}</button>
+          </li>`).join("")}
+        </ul>
+      </details>`).join("");
+
+    $("summary").innerHTML =
+      `<div class="summary"><h2>视频摘要</h2>
+       <p class="overview">${esc(d.overview)}</p>${body}</div>`;
+
+    $("summary").querySelectorAll(".seek").forEach((el) => {
+      el.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        seek(parseFloat(el.dataset.start));
+      };
+    });
+  } catch { /* 没有摘要就不显示 */ }
 }
 
 function seek(t) {

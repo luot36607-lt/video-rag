@@ -23,6 +23,7 @@ from common import BASE_URL, MODEL, VectorIndex, load_key
 from video_ask import ask as ask_impl
 
 CHUNKS_FILE = Path("chunks/semantic.json")
+SUMMARY_FILE = Path("summaries/semantic.json")
 WEB_PAGE = Path("web/video.html")
 DEFAULT_VIDEO = Path("data/video.mp4")
 
@@ -81,6 +82,13 @@ def info() -> dict:
         "duration": meta.get("duration", 0),
         "video": Path(meta.get("video", "")).name,
     }
+
+
+@app.get("/summary")
+def summary() -> dict:
+    if not SUMMARY_FILE.exists():
+        return {"overview": "", "chapters": []}
+    return json.loads(SUMMARY_FILE.read_text(encoding="utf-8"))
 
 
 @app.post("/ask")
