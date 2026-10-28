@@ -115,6 +115,21 @@
   .chap ul { margin: 8px 0 2px; padding-left: 18px; }
   .chap li { margin: 5px 0; font-size: 14px; }
   .chap li .seek { margin-left: 6px; }
+
+  .upload {
+    margin-top: 16px; background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px 16px;
+  }
+  .upload summary { cursor: pointer; font-size: 14px; font-weight: 600; list-style: none; }
+  .upload summary::-webkit-details-marker { display: none; }
+  .upload .row { margin-top: 10px; flex-wrap: wrap; }
+  .upload input[type="file"] { font-size: 13px; }
+  .upload input[type="text"] {
+    font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--line);
+    border-radius: 8px; flex: 1; min-width: 140px; background: var(--bg);
+  }
+  .bar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 </style>
 </head>
 <body>
@@ -130,6 +145,17 @@
   <div class="player">
     <video id="video" controls preload="metadata"></video>
   </div>
+
+  <details class="upload">
+    <summary>上传视频（自动转写、建索引）</summary>
+    <div class="row">
+      <input type="file" id="file" accept="video/*">
+      <input type="text" id="vtitle" placeholder="标题（可选）">
+      <button class="primary" id="up">上传并解析</button>
+    </div>
+    <div class="bar"><i id="pbar"></i></div>
+    <div class="sub" id="pmsg" style="margin-top:6px"></div>
+  </details>
 
   <div id="summary"></div>
 
@@ -169,22 +195,87 @@ document.querySelectorAll(".chip").forEach((el) => {
   el.onclick = () => { qEl.value = el.textContent; ask(); };
 });
 
+async function refreshVideos() {
+  const vids = await fetch("/videos").then((r) => r.json());
+  pick.innerHTML = vids
+    .map((v) => `<option value="${v.id}">${esc(v.title)} · ${fmt(v.duration)}</option>`)
+    .join("");
+  pick.onchange = () => selectVideo(pick.value);
+  return vids;
+}
+
 async function boot() {
   try {
-    const vids = await fetch("/videos").then((r) => r.json());
+    const vids = await refreshVideos();
     if (!vids.length) {
-      $("status").textContent = "还没有视频，先跑转写和分块";
+      $("status").textContent = "还没有视频，先上传一个";
       return;
     }
-    pick.innerHTML = vids
-      .map((v) => `<option value="${v.id}">${esc(v.title)} · ${fmt(v.duration)}</option>`)
-      .join("");
-    pick.onchange = () => selectVideo(pick.value);
     await selectVideo(vids[0].id);
   } catch {
     $("status").textContent = "服务未响应";
   }
 }
+
+const STAGE_NAME = {
+  queued: "排队中", transcribing: "转写中", fixing: "纠错中", chunking: "分块中",
+  summarizing: "生成摘要", indexing: "建索引", done: "完成", failed: "失败",
+};
+
+async function pollTask(taskId, videoId) {
+  const up = $("up");
+  while (true) {
+    let t;
+    try {
+      t = await fetch("/task/" + taskId).then((r) => r.json());
+    } catch {
+      $("pmsg").textContent = "查询任务失败，稍后刷新页面";
+      break;
+    }
+    const pct = Math.round((t.progress || 0) * 100);
+    $("pbar").style.width = pct + "%";
+    $("pmsg").textContent = `${STAGE_NAME[t.stage] || t.stage} ${pct}%`;
+
+    if (t.stage === "done" || t.stage === "failed") {
+      if (t.stage === "failed") {
+        $("pmsg").textContent = "失败：" + (t.error || "未知错误");
+      } else {
+        $("pmsg").textContent = "完成，已加入视频列表";
+        await refreshVideos();
+        await selectVideo(videoId);
+      }
+      up.disabled = false;
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+$("up").onclick = async () => {
+  const f = $("file").files[0];
+  if (!f) {
+    $("pmsg").textContent = "先选一个视频文件";
+    return;
+  }
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("title", $("vtitle").value.trim() || f.name);
+
+  $("up").disabled = true;
+  $("pbar").style.width = "0%";
+  $("pmsg").textContent = `上传中…（${(f.size / 1e6).toFixed(1)} MB）`;
+
+  try {
+    const res = await fetch("/ingest", { method: "POST", body: fd });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const d = await res.json();
+    $("pmsg").textContent = "已上传，开始处理…";
+    await pollTask(d.task_id, d.video_id);
+  } catch (e) {
+    $("pmsg").textContent = "上传失败：" + (e.message || e);
+    $("up").disabled = false;
+  }
+};
 
 async function selectVideo(id, start) {
   current = id;

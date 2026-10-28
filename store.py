@@ -48,6 +48,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vecs USING vec0(
   video_id text,
   embedding float[1024] distance_metric=cosine
 );
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id         TEXT PRIMARY KEY,
+  video_id   TEXT,
+  title      TEXT,
+  stage      TEXT,
+  progress   REAL DEFAULT 0,
+  error      TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT
+);
 """
 
 
@@ -159,6 +170,47 @@ def list_videos(conn: sqlite3.Connection) -> list[dict]:
                FROM videos v ORDER BY v.id"""
         )
         return [dict(r) for r in rows]
+
+
+def create_task(conn: sqlite3.Connection, task_id: str, video_id: str, title: str) -> None:
+    with _lock:
+        conn.execute(
+            "INSERT INTO tasks(id, video_id, title, stage, progress) VALUES (?,?,?,?,0)",
+            (task_id, video_id, title, "queued"),
+        )
+        conn.commit()
+
+
+def update_task(
+    conn: sqlite3.Connection,
+    task_id: str,
+    stage: str | None = None,
+    progress: float | None = None,
+    error: str | None = None,
+) -> None:
+    sets, params = [], []
+    if stage is not None:
+        sets.append("stage=?")
+        params.append(stage)
+    if progress is not None:
+        sets.append("progress=?")
+        params.append(float(progress))
+    if error is not None:
+        sets.append("error=?")
+        params.append(error)
+    if not sets:
+        return
+    sets.append("updated_at=CURRENT_TIMESTAMP")
+    params.append(task_id)
+    with _lock:
+        conn.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id=?", params)
+        conn.commit()
+
+
+def get_task(conn: sqlite3.Connection, task_id: str) -> dict | None:
+    with _lock:
+        row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+    return dict(row) if row else None
 
 
 class DbIndex:

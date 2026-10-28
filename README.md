@@ -249,6 +249,30 @@ UPSERT、`WHERE` 过滤、向量索引这些概念完全一样；换 Postgres + 
 
 ---
 
+## 上传与异步处理
+
+网页上可以直接上传视频（视频下方那个「上传视频」面板）：
+
+```
+POST /ingest      → {task_id, video_id}
+GET  /task/{id}   → {stage, progress, error}
+```
+
+后台流水线**单线程**跑：
+
+```
+transcribing → fixing → chunking → summarizing → indexing → done
+```
+
+单线程是故意的：转写是 CPU 密集的，并发只会互相拖慢。第二个上传会排队。
+
+前端每 2 秒轮询一次，转写进度按**音频位置**推进（不是假动画），其余阶段按步骤跳。
+完成后自动刷新视频列表并切到新视频。
+
+> 上传需要数据库模式（先跑一次 `migrate_to_db.py`），因为任务状态存在 `tasks` 表里。
+
+---
+
 ## 踩过的坑
 
 **1. ASR 的专有名词是成片错的，不是随机的**
@@ -300,6 +324,7 @@ common.py             embedding / 向量索引 / 模型配置
 library.py            多视频索引：扫描 chunks/ 拼成检索集合
 store.py              SQLite + sqlite-vec 存储层（表结构、检索、DbIndex）
 migrate_to_db.py      把 chunks/*.json 导入数据库
+ingest.py             上传后的流水线（转写→纠错→分块→摘要→入库）
 web/video.html        播放器 + 问答界面
 data/                 放视频（不进仓库）
 transcripts/          转写结果（不进仓库）
