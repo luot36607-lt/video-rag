@@ -130,6 +130,13 @@
   }
   .bar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 10px; overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
+  button.ghost {
+    font: inherit; font-size: 13px; cursor: pointer; color: var(--muted);
+    background: transparent; border: 1px solid var(--line); border-radius: 9px;
+    padding: 6px 12px;
+  }
+  button.ghost:hover { color: var(--warn); border-color: var(--warn); }
 </style>
 </head>
 <body>
@@ -140,6 +147,7 @@
       <p class="sub" id="status">正在连接…</p>
     </div>
     <select id="pick"></select>
+    <button id="del" class="ghost">删除当前视频</button>
   </div>
 
   <div class="player">
@@ -451,6 +459,35 @@ btn.onclick = ask;
 qEl.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask();
 });
+$("del").onclick = async () => {
+  if (!current) return;
+  const opt = pick.options[pick.selectedIndex];
+  const name = opt ? opt.textContent : current;
+  if (!confirm(`确定删除「${name}」？\n索引、摘要和上传的视频文件都会一起删掉。`)) return;
+
+  $("del").disabled = true;
+  try {
+    const r = await fetch("/video/" + encodeURIComponent(current), { method: "DELETE" });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    toast("已删除");
+    const vids = await refreshVideos();
+    $("out").innerHTML = "";
+    $("summary").innerHTML = "";
+    if (vids.length) {
+      await selectVideo(vids[0].id);
+    } else {
+      current = null;
+      video.removeAttribute("src");
+      video.load();
+      $("status").textContent = "没有视频了，上传一个吧";
+    }
+  } catch (e) {
+    alert("删除失败：" + (e.message || e));
+  } finally {
+    $("del").disabled = false;
+  }
+};
+
 boot();
 </script>
 </body>

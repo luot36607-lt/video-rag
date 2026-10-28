@@ -254,8 +254,9 @@ UPSERT、`WHERE` 过滤、向量索引这些概念完全一样；换 Postgres + 
 网页上可以直接上传视频（视频下方那个「上传视频」面板）：
 
 ```
-POST /ingest      → {task_id, video_id}
-GET  /task/{id}   → {stage, progress, error}
+POST   /ingest       → {task_id, video_id}
+GET    /task/{id}    → {stage, progress, error}
+DELETE /video/{id}   → 删除视频、块、摘要和上传的文件（外部路径的原始视频不动）
 ```
 
 后台流水线**单线程**跑：

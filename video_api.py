@@ -30,6 +30,9 @@ from video_ask import ask as ask_impl
 
 WEB_PAGE = Path("web/video.html")
 UPLOAD_DIR = Path("data/uploads")
+CHUNKS_DIR = Path("chunks")
+SUMMARIES_DIR = Path("summaries")
+TRANSCRIPTS_DIR = Path("transcripts")
 state: dict = {}
 JOB_Q: "queue.Queue[dict]" = queue.Queue()
 
@@ -191,3 +194,34 @@ def task(task_id: str) -> dict:
     if not t:
         raise HTTPException(404, "没有这个任务")
     return t
+
+
+@app.delete("/video/{vid}")
+def remove_video(vid: str) -> dict:
+    if "conn" not in state:
+        raise HTTPException(503, "删除需要数据库模式")
+
+    if not find_video(state["videos"], vid):
+        raise HTTPException(404, f"没有这个视频：{vid}")
+
+    db.delete_video(state["conn"], vid)
+    state["conn"].commit()
+
+    # 只删自己生成的文件；原始视频如果在 data/uploads 里也一起删，外部路径不动
+    removed = []
+    for p in [
+        CHUNKS_DIR / f"{vid}.json",
+        SUMMARIES_DIR / f"{vid}.json",
+        TRANSCRIPTS_DIR / f"{vid}.json",
+        TRANSCRIPTS_DIR / f"{vid}.fixed.json",
+    ]:
+        if p.exists():
+            p.unlink()
+            removed.append(str(p))
+    for p in UPLOAD_DIR.glob(f"{vid}.*"):
+        p.unlink()
+        removed.append(str(p))
+
+    _reload_index()
+    print(f"已删除视频：{vid}（清理 {len(removed)} 个文件）")
+    return {"deleted": vid, "files": removed}
