@@ -31,3 +31,6 @@ summaries/
 
 # 评测输出（可复现，不必提交）
 eval/summary_eval.json
+
+# 本地数据库
+videos.db

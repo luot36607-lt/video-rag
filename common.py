@@ -141,11 +141,11 @@ def rerank(query: str, documents: list[str], top_n: int = 3) -> list[tuple[float
 
 
 class RerankIndex:
-    """两段式检索：向量先粗排召回 depth 条，再用 reranker 精排出 top_k。"""
+    """两段式检索：先粗排召回 depth 条，再用 reranker 精排出 top_k。"""
 
-    def __init__(self, chunks: list[dict], depth: int = 10):
+    def __init__(self, chunks: list[dict], depth: int = 10, base=None):
         self.chunks = chunks
-        self.base = VectorIndex(chunks)
+        self.base = base or VectorIndex(chunks)
         self.depth = depth
 
     def search(self, query: str, top_k: int = 3) -> list[tuple[float, int]]:

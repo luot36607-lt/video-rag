@@ -19,6 +19,7 @@
 | 摘要 | 4 章 / 20 条要点，**20/20 精确定位到原句** |
 | 摘要评测 | 覆盖率 3/3 · 可定位率 20/20 · 压缩比 16.4% |
 | 多视频 | 3 个视频 / 42 块 / 58 条摘要要点，全部精确定位 |
+| 存储 | SQLite，检索排序与内存版完全一致（8/8） |
 | 检索 | ~500ms（含一次 embedding） |
 | 生成 | ~1.6s，约 700 tokens |
 
@@ -216,6 +217,38 @@ $env:RERANK=1
 
 ---
 
+## 存储：SQLite + sqlite-vec
+
+默认从 `videos.db` 读；没有这个文件就退回读 `chunks/*.json`。
+
+```powershell
+.venv\Scripts\python.exe migrate_to_db.py    # 把 chunks/*.json 导入数据库
+```
+
+三张表：
+
+| 表 | 作用 |
+|---|---|
+| `videos` | 视频元信息（标题、路径、时长） |
+| `chunks` | 文本块 + 时间戳，`video_id` 外键，`hash` 唯一 |
+| `chunk_vecs` | `vec0` 虚表，`rowid = chunks.id`，余弦距离 |
+
+带来的变化：
+
+- **按视频过滤**变成 `WHERE cv.video_id = ?`，不用把全部向量读进内存再筛
+- **重导一个视频**先清空再插入，不会留下旧块
+- **`hash UNIQUE`** 挡住重复块，重复导入是幂等的
+- 检索走数据库索引，不再每次启动加载全部向量
+
+**为什么不是 Postgres**：这台机器没开虚拟化（`HypervisorPresent = False`），Docker/WSL2 起不来，
+装原生 Postgres 又要单独处理 pgvector 的 Windows 编译。SQLite 零运维，但表结构、外键、
+UPSERT、`WHERE` 过滤、向量索引这些概念完全一样；换 Postgres + pgvector 主要是换驱动，
+把 `MATCH ... k = ?` 换成 `ORDER BY embedding <=> ?`。
+
+实测：数据库检索与内存索引在 8 道题上**排序完全一致（8/8）**，没有精度损失。
+
+---
+
 ## 踩过的坑
 
 **1. ASR 的专有名词是成片错的，不是随机的**
@@ -265,6 +298,8 @@ video_ask.py          命令行问答
 video_api.py          FastAPI 服务（多视频、Range 视频流）
 common.py             embedding / 向量索引 / 模型配置
 library.py            多视频索引：扫描 chunks/ 拼成检索集合
+store.py              SQLite + sqlite-vec 存储层（表结构、检索、DbIndex）
+migrate_to_db.py      把 chunks/*.json 导入数据库
 web/video.html        播放器 + 问答界面
 data/                 放视频（不进仓库）
 transcripts/          转写结果（不进仓库）
@@ -282,6 +317,7 @@ eval/                 人工参考摘要 + 评测结果
 - **章节检测依赖相似度**，遇到单主题长段落会切不准
 - **CPU 转写慢**：1 小时视频约需 45 分钟，做长视频要上 GPU 或云 ASR
 - **无并发控制**：转写是同步的，多人同时用会排队
+- **SQLite 单写者**：并发写会排队；真要多用户写入，换 Postgres
 
 ---
 

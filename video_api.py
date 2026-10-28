@@ -15,6 +15,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import store as db
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -29,19 +30,28 @@ state: dict = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    videos = load_videos()
-    if not videos:
-        raise RuntimeError("chunks/ 里没有视频，先跑转写和分块")
+    db_path = Path(os.environ.get("DB_PATH", "videos.db"))
+    use_db = db_path.exists() and os.environ.get("DB", "1") != "0"
 
-    chunks = all_chunks(videos)
+    if use_db:
+        conn = db.connect(str(db_path))
+        base = db.DbIndex(conn)
+        chunks = base.chunks
+        videos = db.list_videos(conn)
+        state["conn"] = conn
+        print(f"存储：SQLite（{db_path}）")
+    else:
+        videos = load_videos()
+        chunks = all_chunks(videos)
+        base = VectorIndex(chunks)
+        print("存储：JSON（没找到 videos.db，或设了 DB=0）")
+
+    if not chunks:
+        raise RuntimeError("没有可用内容，先跑转写和分块")
+
     state["videos"] = videos
     state["chunks"] = chunks
-    if os.environ.get("RERANK", "0") == "1":
-        state["index"] = RerankIndex(chunks)
-        print("检索：向量召回 top-10 + rerank 精排 top-3")
-    else:
-        state["index"] = VectorIndex(chunks)
-        print("检索：纯向量（设 RERANK=1 可开启 rerank）")
+    state["index"] = RerankIndex(chunks, base=base) if os.environ.get("RERANK", "0") == "1" else base
 
     key = load_key()
     if not key:
@@ -78,7 +88,7 @@ def videos() -> list[dict]:
             "id": v["id"],
             "title": v["title"],
             "duration": v["duration"],
-            "chunks": len(v["chunks"]),
+            "chunks": v["chunks"] if isinstance(v["chunks"], int) else len(v["chunks"]),
         }
         for v in state.get("videos", [])
     ]
@@ -89,7 +99,7 @@ def video(vid: str) -> FileResponse:
     v = find_video(state.get("videos", []), vid)
     if not v:
         raise HTTPException(404, f"没有这个视频：{vid}")
-    path = Path(os.environ.get("VIDEO_PATH") or v.get("video") or "")
+    path = Path(os.environ.get("VIDEO_PATH") or v.get("video") or v.get("path") or "")
     if not path.exists():
         raise HTTPException(404, f"找不到视频文件：{path}")
     return FileResponse(path, media_type="video/mp4")
